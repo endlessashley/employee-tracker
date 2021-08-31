@@ -1,7 +1,7 @@
 const inquirer = require('inquirer');
 const mysql = require('mysql2')
 const consoleTable = require('console.table');
-const { restoreDefaultPrompts } = require('inquirer');
+const util = require('util')
 
 // Connect to database
 const db = mysql.createConnection(
@@ -17,7 +17,7 @@ db.connect(err => {
     prompt();
 })
 
-
+db.query = util.promisify(db.query)
 
 //load prompts
 
@@ -56,15 +56,15 @@ const prompt = () => {
 }
 
 //functions for handling user selections
-
-const viewDepartments = () => {
-    db.query('SELECT * FROM department_name', (err, res) => {
+const viewDepartments = async () => {
+    db.query('SELECT department_name FROM department', (err, res) => {
         console.table(res);
         prompt();
     })
-}
+};
 
-const viewRoles = () => {
+
+const viewRoles = async () => {
     db.query('SELECT * FROM roles', (err, res) => {
         console.table(res);
         prompt();
@@ -124,10 +124,7 @@ const addRoleInfo = () => {
         }
     ]).then((answers) => {
         let deptIndex = 0
-        console.log(answers.department_selection)
-        console.log(answers)
         db.query(`SELECT id FROM department where department_name = '${answers.department_selection}'`, function (err, results) {
-
             deptIndex = parseInt(results[0].id);
             addRole()
         });
@@ -146,138 +143,122 @@ const addRoleInfo = () => {
 
 }
 
-const addEmployeeInfo = () => {
-    const roleArray = [];
-    const managerArray = [];
+const addEmployeeInfo = async () => {
+    var roles = await getRoles();
+    var managers = await getManagers();
 
-    db.query("SELECT title FROM roles", function (err, results, field) {
-        results.forEach(element => {
-            roleArray.push(element.title)
-        });
-    })
-
-    db.query("SELECT id FROM employee WHERE manager_id IS NULL", function (err, results, field) {
-        results.forEach(element => {
-            managerArray.push(element.id)
-        });
-        managerArray.push("None")
-    })
-
-    return inquirer.prompt([
+    let addEmployeePrompts = await inquirer.prompt([
         {
             type: "input",
             name: "first_name",
-            message: "Enter employee's first name",
+            message: "What is the first name of the employee you'd like to add?",
         },
         {
             type: "input",
             name: "last_name",
-            message: "Enter employee's last name",
+            message: "What is the last name of the employee you'd like to add?",
         },
         {
             type: "list",
-            name: "role_selection",
-            message: "Select employee role",
-            choices: roleArray,
+            name: "role",
+            message: "What is the new employee's role?",
+            choices: roles,
         },
         {
             type: "list",
-            name: "manager_selection",
-            message: "Select employee's manager by id",
-            choices: managerArray,
-        }
-    ]).then((answers) => {
-
-        let roleID;
-        let managerID = answers.manager_selection;
-
-        if (answers.manager_selection === "None") {
-            managerID = null;
+            name: "manager",
+            message: "Who is the new employee's manager?",
+            choices: managers
         }
 
-        db.query(`SELECT id FROM roles where title = '${answers.role_selection}'`, function (err, results) {
-            roleID = parseInt(results[0].id);
-            addEmployee()
-        });
-
-        const addEmployee = () => {
-            db.query(`INSERT INTO employee (first_name, last_name, role_id, manager_id) VALUES(?,?,?,?)`, [answers.first_name, answers.last_name, roleID, managerID], (err, results) => {
-                console.log(roleID)
-                prompt();
-            });
-        }
-    }).catch((err) => console.error(err))
+    ])
+    var role_id = addEmployeePrompts.role;
+    var manager_id = addEmployeePrompts.manager;
+    const insertEmployee = `INSERT INTO employee (first_name, last_name, role_id, manager_id)
+            VALUES ("${addEmployeePrompts.first_name}", "${addEmployeePrompts.last_name}", ${role_id}, ${manager_id});`;
+    db.query(insertEmployee, (err, result) => {
+        if (err) { console.log(err); }
+        console.log("New employee added")
+        prompt();
+    })
 
 }
 
-const updateEmployeeInfo = () => {
-    const employeeArray = [];
-    const managerArray = [];
-    const roleArray = [];
+const updateEmployeeInfo = async () => {
+    var roles = await getRoles();
+    var employees = await getEmployees();
 
-    db.query(`SELECT DISTINCT id, CONCAT(first_name, ' ', last_name) AS name FROM employee`, function (err, results, field) {
-        results.forEach(element => {
-            employeeArray.push(element.name)
-        })
-    })
-
-    db.query("SELECT id FROM employee WHERE manager_id IS NULL", function (err, results, field) {
-        results.forEach(element => {
-            managerArray.push(element.id)
-        });
-        managerArray.push("None")
-    })
-
-    db.query("SELECT title FROM roles", function (err, results, field) {
-        results.forEach(element => {
-            roleArray.push(element.title)
-        });
-    })
-
-    return inquirer.prompt([
+    let updateEmployeePrompts = await inquirer.prompt([
         {
             type: "list",
-            name: "employee_update",
+            name: "employee",
             message: "Which employee would you like to update?",
-            choices: employeeArray
-        }, 
-
+            choices: employees
+        },
         {
             type: "list",
-            name: "role_update",
+            name: "role",
             message: "What is the employee's new role?",
-            choices: roleArray
-        }, 
-
-        {
-            type: "list",
-            name: "manager_update",
-            message: "Who is the employee's new manager?",
-            choices: managerArray
+            choices: roles,
         },
 
-        {
-            type: "input",
-            name: "salary_update",
-            message: "What is the employee's new salary?",
-        }
-    ]).then((answers) => {
-        let roleID;
-        let managerID = answers.manager_update;
+    ])
+    var role_id = updateEmployeePrompts.role;
+    var employee_id = updateEmployeePrompts.employee
+    const updateRole = `UPDATE employee
+                    SET role_id = ${role_id} WHERE id = ${employee_id}`;
+    db.query(updateRole, (err, result) => {
+        if (err) { console.log(err); }
+        console.log("Employee updated")
+        prompt();
+    })
 
-        if(answers.manager_update === "None") {
-            managerID = null;
-        }
+}
 
-        db.query(`SELECT id FROM roles where title = '${answers.role_update}'`, function (err, results) {
-            roleID = parseInt(results[0].id);
-            updateEmployee()
-        });
+const getRoles = async () => {
+    var roleCall = "SELECT id, title FROM roles";
+    var result = await db.promise().query(roleCall);
+    let array = JSON.stringify(result[0]);
+    let parse = JSON.parse(array);
+    var roles = [];
+    for (i = 0; i < parse.length; i++) {
+        let temp = parse[i].title;
+        var role = { name: temp, value: JSON.stringify(parse[i].id) }
+        roles.push(role)
+    }
+    return roles;
+}
 
-        const updateEmployee = () => {
-            db.query(`UPDATE employee SET role_id = ${roleID} WHERE id = ${emp_id}`, (err, results) => {
-                prompt();
-            });
-        }
-    }).catch((err) => console.error(err))
-        }
+
+const getManagers = async () => {
+    var managerCall = `SELECT m.id, CONCAT(m.first_name, ' ', m.last_name) AS Manager
+        FROM employee
+        LEFT JOIN employee m
+        ON employee.manager_id = m.id
+        WHERE employee.manager_id IS NOT NULL`;
+    var result = await db.promise().query(managerCall);
+    let array = JSON.stringify(result[0]);
+    let parse = JSON.parse(array);
+    var managers = [];
+    for (i = 0; i < parse.length; i++) {
+        let temp = parse[i].Manager;
+        var manager = { name: temp, value: JSON.stringify(parse[i].id) }
+        managers.push(manager)
+    }
+    return managers;
+}
+
+const getEmployees = async () => {
+    var employeeCall = `SELECT id, CONCAT(first_name, ' ', last_name) AS Name FROM employee`;
+    var result = await db.promise().query(employeeCall);
+    let array = JSON.stringify(result[0]);
+    let parse = JSON.parse(array);
+    var employees = [];
+    for (i = 0; i < parse.length; i++) {
+        let temp = parse[i].Name;
+        var employee = { name: temp, value: JSON.stringify(parse[i].id) }
+        employees.push(employee)
+    }
+    return employees;
+}
+
