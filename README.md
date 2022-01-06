@@ -11,8 +11,7 @@
 
 ## Installation
   * Refer to Node.js and MySQL documentation to install.
-  * To install the dependencies needed, enter the command "npm i" into the terminal.
-  * To install necessary dependencies, run the following command: 
+  * To install the dependencies needed, enter the command "npm i" into the terminal. 
 
   
   ## Usage
